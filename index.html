@@ -53,6 +53,26 @@
     }
     input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(31,138,76,.12); }
 
+    .slider-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .slider-out {
+      min-width: 64px; text-align: center; padding: 6px 8px; border-radius: 8px;
+      background: #eef5f0; color: var(--green-dark); font-size: 13px; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none; flex: 1; height: 6px; border-radius: 999px;
+      background: var(--line); outline: none; cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--green); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 20px; height: 20px; border-radius: 50%; background: var(--green);
+      border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: pointer;
+    }
+    .slider-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+
     .seg { display: flex; gap: 8px; }
     .seg button {
       flex: 1; padding: 11px; border-radius: 10px; border: 1px solid var(--line);
@@ -106,7 +126,12 @@
       <div class="card">
         <div class="field">
           <label for="units">Units consumed this month (kWh)</label>
-          <input type="number" id="units" min="0" placeholder="e.g. 350" />
+          <input type="number" id="units" min="0" max="1000" placeholder="e.g. 350" />
+          <div class="slider-row">
+            <input type="range" id="unitsSlider" min="0" max="1000" step="10" value="350" />
+            <output id="unitsOut" class="slider-out">350</output>
+          </div>
+          <div class="slider-scale"><span>0</span><span>500</span><span>1000+</span></div>
         </div>
         <div class="field">
           <label>Consumer category</label>
@@ -233,8 +258,12 @@
     }));
 
     /* ── Bill calculation ── */
-    document.getElementById("calcBill").addEventListener("click", () => {
-      const units = parseFloat(document.getElementById("units").value) || 0;
+    const unitsInput = document.getElementById("units");
+    const unitsSlider = document.getElementById("unitsSlider");
+    const unitsOut = document.getElementById("unitsOut");
+
+    function calcBill() {
+      const units = parseFloat(unitsInput.value) || 0;
       const slabs = TARIFF[category];
       let remaining = units, prevCap = 0, energy = 0, rows = "";
 
@@ -261,7 +290,31 @@
         `<tr class="grand"><td colspan="2">Total payable</td><td class="num">${rs(total)}</td></tr>`;
       document.getElementById("billTotal").textContent = rs(total);
       document.getElementById("billResult").classList.add("show");
-    });
+    }
+
+    /* Keep the slider, number field and live total in sync */
+    function syncFromSlider() {
+      unitsInput.value = unitsSlider.value;
+      unitsOut.textContent = unitsSlider.value;
+      calcBill();
+    }
+    function syncFromInput() {
+      const v = Math.max(0, parseFloat(unitsInput.value) || 0);
+      unitsSlider.value = Math.min(v, unitsSlider.max);
+      unitsOut.textContent = v;
+      calcBill();
+    }
+    unitsSlider.addEventListener("input", syncFromSlider);
+    unitsInput.addEventListener("input", syncFromInput);
+    document.getElementById("calcBill").addEventListener("click", calcBill);
+
+    /* Recalculate live when the consumer category changes too */
+    document.querySelectorAll("#category button").forEach(b =>
+      b.addEventListener("click", () => { if (parseFloat(unitsInput.value) > 0) calcBill(); })
+    );
+
+    /* Initial render using the slider's default value */
+    syncFromSlider();
 
     /* ── Solar sizing ── */
     document.getElementById("calcSolar").addEventListener("click", () => {
