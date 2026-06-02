@@ -3,6 +3,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { calculateBill, calculateSolarSetup } from './src/utils/tariffEngine';
+import {
+  requestNotificationPermission,
+  ensureAndroidChannel,
+  schedulePeakAlerts,
+  cancelPeakAlerts,
+  arePeakAlertsScheduled,
+} from './src/utils/notifications';
 
 /**
  * BijliCut — dark-mode dashboard.
@@ -27,12 +34,36 @@ export default function App() {
   const [units, setUnits] = useState(300);
   const [isProtected, setIsProtected] = useState(false);
   const [now, setNow] = useState(new Date());
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
 
   // Keep the grid-status badge accurate as the clock crosses the peak window.
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  // On first load: request notification permission, set up the Android channel,
+  // and restore the toggle if the alarms are already scheduled.
+  useEffect(() => {
+    (async () => {
+      await requestNotificationPermission();
+      await ensureAndroidChannel();
+      setAlertsEnabled(await arePeakAlertsScheduled());
+    })().catch(() => {});
+  }, []);
+
+  // Toggle the daily peak-hour alarms on/off.
+  const togglePeakAlerts = async () => {
+    if (!alertsEnabled) {
+      const granted = await requestNotificationPermission();
+      if (!granted) return; // permission denied — leave the switch off
+      await schedulePeakAlerts();
+      setAlertsEnabled(true);
+    } else {
+      await cancelPeakAlerts();
+      setAlertsEnabled(false);
+    }
+  };
 
   const peak = isPeakHour(now);
 
@@ -104,6 +135,19 @@ export default function App() {
             ? 'Heavy appliances cost more right now. Defer ironing, pumping & EV charging until after 10 PM.'
             : 'Good time to run high-load appliances at the standard rate.'}
         </Text>
+
+        {/* Peak-hour alarm toggle */}
+        <View className="flex-row items-center justify-between mt-4 pt-4 border-t border-slate-800">
+          <View className="flex-1 pr-3">
+            <Text className="text-slate-100 text-sm font-semibold">
+              🔔 Enable Peak Hour Alerts
+            </Text>
+            <Text className="text-slate-500 text-xs mt-0.5">
+              Daily reminders at 6 PM &amp; 10 PM
+            </Text>
+          </View>
+          <Toggle value={alertsEnabled} onToggle={togglePeakAlerts} />
+        </View>
       </View>
 
       {/* ───────── Tab switcher: Bill ⚡ / Solar ☀️ ───────── */}
@@ -265,6 +309,22 @@ export default function App() {
         </Text>
       )}
     </ScrollView>
+  );
+}
+
+/** Native pill toggle switch, styled with NativeWind (no web tags). */
+function Toggle({ value, onToggle }) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={onToggle}
+      className={
+        'w-14 h-8 rounded-full p-1 flex-row items-center ' +
+        (value ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start')
+      }
+    >
+      <View className="h-6 w-6 rounded-full bg-white shadow" />
+    </TouchableOpacity>
   );
 }
 

@@ -12,6 +12,16 @@
     "android": {},
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#f4b400",
+          "defaultChannel": "peak-hour-alerts"
+        }
+      ]
+    ]
   }
 }
