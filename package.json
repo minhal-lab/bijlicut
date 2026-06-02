@@ -12,6 +12,7 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/slider": "5.0.1",
+    "@supabase/supabase-js": "^2.107.0",
     "expo": "~54.0.0",
     "expo-notifications": "~0.32.17",
     "nativewind": "^4.2.4",
@@ -20,7 +21,9 @@
     "react-native": "0.81.5",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-worklets": "0.5.1"
+    "react-native-url-polyfill": "^3.0.0",
+    "react-native-worklets": "0.5.1",
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "babel-preset-expo": "~54.0.10",

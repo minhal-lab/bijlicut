@@ -258,6 +258,45 @@ function buildSavingTip(units, slabs, modeLabel, opts, currentTotal) {
 }
 
 /**
+ * Build a slab array (the thing the engine loops over) from dynamic tariff
+ * rows for one DISCO + consumer type. Returns null if no matching rows, so the
+ * caller can fall back to the hardcoded constants.
+ *
+ * @param {Array} rows           Tariff rows (camelCase, from Supabase/cache/fallback).
+ * @param {string} disco         DISCO code, e.g. 'LESCO'.
+ * @param {string} consumerType  'protected' | 'unprotected'.
+ * @returns {Slab[] | null}
+ */
+export function buildSlabsFromRows(rows, disco, consumerType) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const slabs = rows
+    .filter((r) => r.disco === disco && r.consumerType === consumerType)
+    .sort((a, b) => a.slabMin - b.slabMin)
+    .map((r) => ({
+      min: r.slabMin,
+      max: r.slabMax == null ? Infinity : r.slabMax, // null → open-ended band
+      rate: Number(r.rate),
+      fixed: Number(r.fixedCharge),
+      label: r.slabRange,
+    }));
+  return slabs.length ? slabs : null;
+}
+
+/**
+ * Pull the per-DISCO adjustments (FCA + surcharge) out of dynamic rows.
+ * @param {Array} rows
+ * @param {string} disco
+ * @returns {{ fuelAdjustment: number, surcharge: number } | null}
+ */
+export function getDiscoAdjustments(rows, disco) {
+  if (!Array.isArray(rows)) return null;
+  const row = rows.find((r) => r.disco === disco);
+  return row
+    ? { fuelAdjustment: Number(row.fuelAdjustment), surcharge: Number(row.surcharge) }
+    : null;
+}
+
+/**
  * Estimate a Pakistani residential electricity bill and return a structured
  * layout, including the active slab label and a Smart Saving Tip.
  *
@@ -294,18 +333,27 @@ export function calculateBill(monthlyUnits, variables = {}) {
   // Resolve the DISCO preset, if any. Explicit variables override preset values.
   const preset = variables.disco ? DISCO_PRESETS[variables.disco] : null;
 
-  const opts = {
-    gstRate: variables.gstRate ?? preset?.gstRate ?? DEFAULT_GST_RATE,
-    fuelAdjustment: variables.fuelAdjustment ?? preset?.fuelAdjustment ?? 0,
-    surcharge: variables.surcharge ?? preset?.surcharge ?? 0,
-  };
-
   // Protected status only holds at/below 200 units. Above that, NEPRA bills the
   // month at unprotected rates regardless of historical eligibility.
   const wantsProtected = Boolean(variables.isProtected);
   const isProtected = wantsProtected && units <= 200;
+  const consumerType = isProtected ? 'protected' : 'unprotected';
 
-  const slabs = isProtected ? PROTECTED_SLABS : UNPROTECTED_SLABS;
+  // Prefer dynamic rows (Supabase/cache/fallback) for BOTH the slab array the
+  // engine loops over and the per-DISCO adjustments. Fall back to the hardcoded
+  // constants/preset when no matching rows are supplied.
+  const dynamicSlabs = buildSlabsFromRows(variables.tariffRows, variables.disco, consumerType);
+  const dynamicAdj = getDiscoAdjustments(variables.tariffRows, variables.disco);
+
+  const slabs = dynamicSlabs || (isProtected ? PROTECTED_SLABS : UNPROTECTED_SLABS);
+
+  const opts = {
+    gstRate: variables.gstRate ?? preset?.gstRate ?? DEFAULT_GST_RATE,
+    fuelAdjustment:
+      variables.fuelAdjustment ?? dynamicAdj?.fuelAdjustment ?? preset?.fuelAdjustment ?? 0,
+    surcharge: variables.surcharge ?? dynamicAdj?.surcharge ?? preset?.surcharge ?? 0,
+  };
+
   const modeLabel = isProtected ? 'Protected' : 'Unprotected';
 
   const charges = computeCharges(units, slabs, opts);

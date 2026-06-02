@@ -20,6 +20,13 @@ import {
   saveBillLog,
   deleteBillLog,
 } from './src/utils/historyEngine';
+import {
+  getCachedTariffs,
+  saveCachedTariffs,
+  fetchRemoteTariffs,
+  FALLBACK_TARIFFS,
+  FALLBACK_EFFECTIVE_DATE,
+} from './src/data/tariffStore';
 
 /**
  * BijliCut — dark-mode dashboard.
@@ -31,6 +38,10 @@ import {
 
 const PEAK_START_HOUR = 18; // 6:00 PM
 const PEAK_END_HOUR = 22; //   10:00 PM
+
+// Upper bound for the bill slider. High enough for commercial / multi-AC heavy
+// users; the engine's 701+ slab applies to everything above 700 regardless.
+const MAX_UNITS = 10000;
 
 const formatRs = (n) => 'Rs. ' + Math.round(n).toLocaleString('en-PK');
 
@@ -47,6 +58,9 @@ export default function App() {
   const [now, setNow] = useState(new Date());
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [logs, setLogs] = useState([]);
+  // Tariff rows fed into the calc engine. Seeded with the bundled fallback so
+  // the first render has data instantly (zero loading delay), even offline.
+  const [tariffRows, setTariffRows] = useState(FALLBACK_TARIFFS);
 
   // Keep the grid-status badge accurate as the clock crosses the peak window.
   useEffect(() => {
@@ -82,11 +96,37 @@ export default function App() {
     getBillLogs().then(setLogs).catch(() => {});
   }, []);
 
+  // Offline-first tariff sync: instant cache → background fetch → adopt-if-newer.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Step A — read the local cache and use it immediately (zero delay).
+      const cached = await getCachedTariffs();
+      if (cancelled) return;
+      if (cached) setTariffRows(cached.rows);
+
+      // Step B — background fetch (returns null when offline/unreachable).
+      const remote = await fetchRemoteTariffs();
+      if (cancelled || !remote) return;
+
+      // Step C — adopt only when Supabase is newer than the cache (or no cache
+      // exists yet), updating BOTH the live state and AsyncStorage.
+      const cachedVersion = cached?.version ?? FALLBACK_EFFECTIVE_DATE;
+      if (!cached || remote.version > cachedVersion) {
+        setTariffRows(remote.rows);
+        await saveCachedTariffs(remote);
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const peak = isPeakHour(now);
 
   const bill = useMemo(
-    () => calculateBill(units, { isProtected, disco }),
-    [units, isProtected, disco]
+    () => calculateBill(units, { isProtected, disco, tariffRows }),
+    [units, isProtected, disco, tariffRows]
   );
 
   // Save the currently-active calculation, then refresh the list.
@@ -304,8 +344,8 @@ export default function App() {
         <Slider
           style={{ width: '100%', height: 44, marginTop: 12 }}
           minimumValue={0}
-          maximumValue={1000}
-          step={5}
+          maximumValue={MAX_UNITS}
+          step={10}
           value={units}
           onValueChange={(v) => setUnits(Math.round(v))}
           minimumTrackTintColor="#34d399"
@@ -314,8 +354,8 @@ export default function App() {
         />
         <View className="flex-row justify-between -mt-1">
           <Text className="text-slate-500 text-xs">0</Text>
-          <Text className="text-slate-500 text-xs">500</Text>
-          <Text className="text-slate-500 text-xs">1000</Text>
+          <Text className="text-slate-500 text-xs">5k</Text>
+          <Text className="text-slate-500 text-xs">10k</Text>
         </View>
 
         {/* Protected / Unprotected toggle (drives the engine) */}
