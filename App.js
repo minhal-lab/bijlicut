@@ -1,8 +1,8 @@
 import './global.css';
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { calculateBill } from './src/utils/tariffEngine';
+import { calculateBill, calculateSolarSetup } from './src/utils/tariffEngine';
 
 /**
  * BijliCut — dark-mode dashboard.
@@ -23,6 +23,7 @@ function isPeakHour(date) {
 }
 
 export default function App() {
+  const [tab, setTab] = useState('bill'); // 'bill' | 'solar'
   const [units, setUnits] = useState(300);
   const [isProtected, setIsProtected] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -105,7 +106,43 @@ export default function App() {
         </Text>
       </View>
 
+      {/* ───────── Tab switcher: Bill ⚡ / Solar ☀️ ───────── */}
+      <View className="flex-row bg-slate-900 border border-slate-800 rounded-2xl p-1 mb-5">
+        <TouchableOpacity
+          className={'flex-1 rounded-xl py-3 ' + (tab === 'bill' ? 'bg-emerald-500' : '')}
+          activeOpacity={0.85}
+          onPress={() => setTab('bill')}
+        >
+          <Text
+            className={
+              'text-center text-sm font-bold ' +
+              (tab === 'bill' ? 'text-slate-950' : 'text-slate-400')
+            }
+          >
+            ⚡ Bill Estimator
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          className={'flex-1 rounded-xl py-3 ' + (tab === 'solar' ? 'bg-amber-400' : '')}
+          activeOpacity={0.85}
+          onPress={() => setTab('solar')}
+        >
+          <Text
+            className={
+              'text-center text-sm font-bold ' +
+              (tab === 'solar' ? 'text-slate-950' : 'text-slate-400')
+            }
+          >
+            ☀️ Solar Consultant
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {tab === 'solar' && <SolarConsultant />}
+
       {/* ───────── Main Segment: interactive slider + live bill ───────── */}
+      {tab === 'bill' && (
+      <>
       <View className="rounded-3xl bg-slate-900 border border-slate-800 p-5 mb-5">
         <View className="flex-row items-center justify-between mb-1">
           <Text className="text-slate-400 text-xs uppercase tracking-widest">
@@ -218,11 +255,15 @@ export default function App() {
           </View>
         )}
       </View>
+      </>
+      )}
 
-      <Text className="text-slate-600 text-[11px] text-center mt-6">
-        Tariffs are indicative and change via NEPRA notifications & monthly FCA.
-        Always confirm with your official bill.
-      </Text>
+      {tab === 'bill' && (
+        <Text className="text-slate-600 text-[11px] text-center mt-6">
+          Tariffs are indicative and change via NEPRA notifications & monthly
+          FCA. Always confirm with your official bill.
+        </Text>
+      )}
     </ScrollView>
   );
 }
@@ -233,6 +274,120 @@ function Row({ label, value }) {
     <View className="flex-row justify-between py-1.5">
       <Text className="text-slate-400 text-sm">{label}</Text>
       <Text className="text-slate-200 text-sm font-semibold">{value}</Text>
+    </View>
+  );
+}
+
+/** Compact lakh formatter (1 lakh = 100,000) for tight stat tiles. */
+const lakhs = (n) => 'Rs. ' + (n / 100000).toFixed(1) + 'L';
+
+/**
+ * Solar Consultant — type an average summer bill, get an instant rooftop
+ * system recommendation from calculateSolarSetup(). Same dark-mode aesthetic,
+ * native elements only (View / Text / TextInput).
+ */
+function SolarConsultant() {
+  const [billText, setBillText] = useState('25000');
+  const bill = parseFloat(billText) || 0;
+  const solar = useMemo(() => calculateSolarSetup(bill), [bill]);
+  const hasResult = solar.systemSizeKw > 0;
+
+  return (
+    <View>
+      {/* Input card */}
+      <View className="rounded-3xl bg-slate-900 border border-slate-800 p-5 mb-5">
+        <Text className="text-slate-400 text-xs uppercase tracking-widest">
+          Solar Consultant
+        </Text>
+        <Text className="text-white text-lg font-bold mt-1 mb-4">
+          Size your rooftop system ☀️
+        </Text>
+        <Text className="text-slate-400 text-xs mb-2">
+          Your average summer bill
+        </Text>
+        <View className="flex-row items-center bg-slate-800 rounded-2xl px-4 border border-slate-700">
+          <Text className="text-amber-400 text-xl font-extrabold mr-2">Rs.</Text>
+          <TextInput
+            className="flex-1 text-white text-2xl font-extrabold py-3"
+            keyboardType="numeric"
+            value={billText}
+            onChangeText={setBillText}
+            placeholder="25000"
+            placeholderTextColor="#475569"
+            selectionColor="#fbbf24"
+          />
+        </View>
+      </View>
+
+      {hasResult ? (
+        <>
+          {/* Headline: recommended system size */}
+          <View className="rounded-3xl bg-amber-400 p-5 mb-3">
+            <Text className="text-amber-900 text-xs font-bold uppercase tracking-widest">
+              Recommended System
+            </Text>
+            <View className="flex-row items-end mt-1">
+              <Text className="text-slate-950 text-6xl font-extrabold tracking-tighter">
+                {solar.systemSizeKw}
+              </Text>
+              <Text className="text-slate-900 text-2xl font-extrabold mb-2 ml-1">
+                kW
+              </Text>
+            </View>
+            <Text className="text-amber-900 text-sm font-semibold mt-1">
+              {solar.panels} × {solar.panelWattage}W panels · offsets ~
+              {solar.estimatedMonthlyUnits} units/mo
+            </Text>
+          </View>
+
+          {/* Stat tiles: investment + payback */}
+          <View className="flex-row mb-3">
+            <View className="flex-1 rounded-3xl bg-slate-900 border border-slate-800 p-4 mr-3">
+              <Text className="text-slate-400 text-xs uppercase tracking-widest">
+                Total Investment
+              </Text>
+              <Text className="text-emerald-400 text-2xl font-extrabold mt-2">
+                {formatRs(solar.investmentEstimate)}
+              </Text>
+              <Text className="text-slate-500 text-xs mt-1">
+                {lakhs(solar.investmentLow)} – {lakhs(solar.investmentHigh)} range
+              </Text>
+            </View>
+
+            <View className="flex-1 rounded-3xl bg-slate-900 border border-slate-800 p-4">
+              <Text className="text-slate-400 text-xs uppercase tracking-widest">
+                Payback Period
+              </Text>
+              <Text className="text-emerald-400 text-2xl font-extrabold mt-2">
+                {solar.paybackMonths} mo
+              </Text>
+              <Text className="text-slate-500 text-xs mt-1">
+                ~{solar.paybackYears} years to recover
+              </Text>
+            </View>
+          </View>
+
+          {/* Net-metering note */}
+          <View className="rounded-3xl bg-emerald-500/10 border border-emerald-500/30 p-4">
+            <Text className="text-emerald-200 text-sm leading-5">
+              ⚡ With net metering, surplus daytime generation is exported to the
+              grid and credited against your night-time usage — sharpening the
+              payback above.
+            </Text>
+          </View>
+        </>
+      ) : (
+        <View className="rounded-3xl bg-slate-900 border border-slate-800 p-6">
+          <Text className="text-slate-400 text-center text-sm">
+            Enter your average monthly bill to see a tailored solar plan.
+          </Text>
+        </View>
+      )}
+
+      <Text className="text-slate-600 text-[11px] text-center mt-5">
+        Estimates assume ~125 units/kW/month and Rs.150k–175k/kW installed.
+        Actual sizing depends on roof space, shading & sanctioned load.
+      </Text>
     </View>
   );
 }

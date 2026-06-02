@@ -43,6 +43,26 @@ export const UNPROTECTED_SLABS = [
 /** Default General Sales Tax applied on the energy charge. */
 export const DEFAULT_GST_RATE = 0.18;
 
+/* ───────────────────────── Solar constants ─────────────────────────────── */
+
+/** Approx. monthly units generated per 1 kW of installed solar in Pakistan. */
+export const UNITS_PER_KW_PER_MONTH = 125;
+
+/** Wattage of a single modern solar panel (W). */
+export const SOLAR_PANEL_WATTAGE = 550;
+
+/** Turnkey system cost band per kW — structure, inverter & net-metering (Rs). */
+export const COST_PER_KW_LOW = 150000;
+export const COST_PER_KW_HIGH = 175000;
+
+/**
+ * Blended effective tariff (Rs/unit, incl. taxes & surcharges) used to convert
+ * a monthly bill back into approximate units. Solar adopters are typically
+ * higher-usage unprotected consumers, hence a mid-high blended rate. Override
+ * via the options argument if you have a more accurate figure.
+ */
+export const DEFAULT_EFFECTIVE_TARIFF = 55;
+
 /**
  * @typedef {Object} Slab
  * @property {number} min   Lower bound of the bracket (inclusive).
@@ -53,6 +73,8 @@ export const DEFAULT_GST_RATE = 0.18;
  */
 
 const round2 = (n) => Math.round(n * 100) / 100;
+const round1 = (n) => Math.round(n * 10) / 10;
+const roundTo = (n, step) => Math.round(n / step) * step;
 
 /**
  * Locate the slab a given unit count falls into.
@@ -239,6 +261,94 @@ export function calculateBill(monthlyUnits, variables = {}) {
     totalCost: charges.totalCost,
     breakdown: charges.breakdown,
     smartSavingTip,
+  };
+}
+
+/**
+ * Estimate a rooftop solar setup from a consumer's average monthly bill.
+ *
+ * Method:
+ *   1. Convert the bill → approximate monthly units via a blended tariff.
+ *   2. Size the system: units ÷ {@link UNITS_PER_KW_PER_MONTH} kW.
+ *   3. Derive panel count from {@link SOLAR_PANEL_WATTAGE}.
+ *   4. Cost the system across the Rs.150k–175k/kW band.
+ *   5. Payback = investment ÷ monthly saving (a well-sized system offsets
+ *      effectively the whole bill), reported in months and years.
+ *
+ * @param {number} averageBillRs        Average monthly bill in Rs. (use summer).
+ * @param {Object} [options]
+ * @param {number} [options.effectiveTariff]  Rs/unit blended rate for bill→units.
+ * @returns {{
+ *   averageBillRs: number,
+ *   currency: 'PKR',
+ *   estimatedMonthlyUnits: number,
+ *   systemSizeKw: number,
+ *   panels: number,
+ *   panelWattage: number,
+ *   investmentLow: number,
+ *   investmentHigh: number,
+ *   investmentEstimate: number,
+ *   monthlySaving: number,
+ *   paybackMonths: number,
+ *   paybackYears: number,
+ *   paybackRange: { minMonths: number, maxMonths: number }
+ * }}
+ */
+export function calculateSolarSetup(averageBillRs, options = {}) {
+  const bill = Math.max(0, Number(averageBillRs) || 0);
+  const effectiveTariff = options.effectiveTariff ?? DEFAULT_EFFECTIVE_TARIFF;
+
+  // Empty / zero bill → nothing to size.
+  if (bill <= 0) {
+    return {
+      averageBillRs: 0,
+      currency: 'PKR',
+      estimatedMonthlyUnits: 0,
+      systemSizeKw: 0,
+      panels: 0,
+      panelWattage: SOLAR_PANEL_WATTAGE,
+      investmentLow: 0,
+      investmentHigh: 0,
+      investmentEstimate: 0,
+      monthlySaving: 0,
+      paybackMonths: 0,
+      paybackYears: 0,
+      paybackRange: { minMonths: 0, maxMonths: 0 },
+    };
+  }
+
+  const estimatedMonthlyUnits = bill / effectiveTariff;
+
+  const rawKw = estimatedMonthlyUnits / UNITS_PER_KW_PER_MONTH;
+  const systemSizeKw = Math.max(0.5, round1(rawKw)); // round to 0.1 kW, floor 0.5
+  const panels = Math.max(1, Math.ceil((systemSizeKw * 1000) / SOLAR_PANEL_WATTAGE));
+
+  const investmentLow = roundTo(systemSizeKw * COST_PER_KW_LOW, 1000);
+  const investmentHigh = roundTo(systemSizeKw * COST_PER_KW_HIGH, 1000);
+  const investmentEstimate = roundTo((investmentLow + investmentHigh) / 2, 1000);
+
+  // A correctly-sized system offsets essentially the full monthly bill.
+  const monthlySaving = bill;
+  const paybackMonths = Math.ceil(investmentEstimate / monthlySaving);
+  const paybackYears = round1(paybackMonths / 12);
+
+  return {
+    averageBillRs: Math.round(bill),
+    currency: 'PKR',
+    estimatedMonthlyUnits: Math.round(estimatedMonthlyUnits),
+    systemSizeKw,
+    panels,
+    panelWattage: SOLAR_PANEL_WATTAGE,
+    investmentLow,
+    investmentHigh,
+    investmentEstimate,
+    monthlySaving: Math.round(monthlySaving),
+    paybackMonths,
+    paybackYears,
+    paybackRange: {
+      minMonths: Math.ceil(investmentLow / monthlySaving),
+      maxMonths: Math.ceil(investmentHigh / monthlySaving),
+    },
   };
 }
 
