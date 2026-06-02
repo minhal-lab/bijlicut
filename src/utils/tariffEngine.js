@@ -43,6 +43,59 @@ export const UNPROTECTED_SLABS = [
 /** Default General Sales Tax applied on the energy charge. */
 export const DEFAULT_GST_RATE = 0.18;
 
+/**
+ * Per-DISCO presets. Each distribution company carries a different monthly Fuel
+ * Cost Adjustment (Rs/unit) and a fixed regional surcharge/offset (Rs), which is
+ * what makes the same consumption produce a different bill region-to-region.
+ *
+ * ⚠️ Indicative values — update from the latest NEPRA / DISCO notifications.
+ *
+ * @typedef {Object} DiscoPreset
+ * @property {string} code           Short key (also used as the picker value).
+ * @property {string} label          Display name.
+ * @property {string} region         City / area served.
+ * @property {number} fuelAdjustment Per-unit FCA in Rs/unit.
+ * @property {number} surcharge      Flat monthly surcharge/offset in Rs.
+ * @property {number} gstRate        GST rate (federal 18%, kept overridable).
+ */
+export const DISCO_PRESETS = {
+  LESCO: {
+    code: 'LESCO',
+    label: 'LESCO',
+    region: 'Lahore',
+    fuelAdjustment: 3.2,
+    surcharge: 0,
+    gstRate: 0.18,
+  },
+  IESCO: {
+    code: 'IESCO',
+    label: 'IESCO',
+    region: 'Islamabad',
+    fuelAdjustment: 2.6,
+    surcharge: 0,
+    gstRate: 0.18,
+  },
+  FESCO: {
+    code: 'FESCO',
+    label: 'FESCO',
+    region: 'Faisalabad',
+    fuelAdjustment: 2.9,
+    surcharge: 0,
+    gstRate: 0.18,
+  },
+  KE: {
+    code: 'KE',
+    label: 'K-Electric',
+    region: 'Karachi',
+    fuelAdjustment: 4.4,
+    surcharge: 150,
+    gstRate: 0.18,
+  },
+};
+
+/** Convenience list for UI pickers, in display order. */
+export const DISCO_LIST = Object.values(DISCO_PRESETS);
+
 /* ───────────────────────── Solar constants ─────────────────────────────── */
 
 /** Approx. monthly units generated per 1 kW of installed solar in Pakistan. */
@@ -94,11 +147,12 @@ function findSlab(units, slabs) {
  *
  * @param {number} units
  * @param {Slab[]} slabs
- * @param {{ gstRate?: number, fuelAdjustment?: number }} [opts]
+ * @param {{ gstRate?: number, fuelAdjustment?: number, surcharge?: number }} [opts]
  * @returns {{
  *   energyCharge: number,
  *   fixedCharge: number,
  *   fuelAdjustment: number,
+ *   surcharge: number,
  *   tax: number,
  *   totalCost: number,
  *   slab: Slab | null,
@@ -108,6 +162,7 @@ function findSlab(units, slabs) {
 function computeCharges(units, slabs, opts = {}) {
   const gstRate = opts.gstRate ?? DEFAULT_GST_RATE;
   const perUnitFuel = opts.fuelAdjustment ?? 0; // Rs/unit FCA, optional
+  const surcharge = units > 0 ? opts.surcharge ?? 0 : 0; // flat regional offset
 
   const breakdown = [];
   let energyCharge = 0;
@@ -134,12 +189,13 @@ function computeCharges(units, slabs, opts = {}) {
   const fixedCharge = slab ? slab.fixed : 0;
   const fuelAdjustment = perUnitFuel * units;
   const tax = (energyCharge + fuelAdjustment) * gstRate;
-  const totalCost = energyCharge + fuelAdjustment + fixedCharge + tax;
+  const totalCost = energyCharge + fuelAdjustment + fixedCharge + tax + surcharge;
 
   return {
     energyCharge: round2(energyCharge),
     fixedCharge: round2(fixedCharge),
     fuelAdjustment: round2(fuelAdjustment),
+    surcharge: round2(surcharge),
     tax: round2(tax),
     totalCost: round2(totalCost),
     slab,
@@ -212,14 +268,20 @@ function buildSavingTip(units, slabs, modeLabel, opts, currentTotal) {
  *        Automatically ignored if monthlyUnits > 200.
  * @param {number} [variables.gstRate=0.18]        GST applied to energy + FCA.
  * @param {number} [variables.fuelAdjustment=0]    Per-unit FCA in Rs/unit.
+ * @param {string} [variables.disco]               DISCO key (e.g. 'LESCO', 'KE')
+ *        whose preset supplies fuelAdjustment / surcharge / gstRate. Explicit
+ *        values in `variables` always win over the preset.
  * @returns {{
  *   monthlyUnits: number,
  *   isProtected: boolean,
  *   currency: 'PKR',
+ *   disco: string | null,
+ *   discoLabel: string | null,
  *   slabLabel: string,
  *   energyCharge: number,
  *   fixedCharge: number,
  *   fuelAdjustment: number,
+ *   surcharge: number,
  *   tax: number,
  *   totalCost: number,
  *   breakdown: Array<{ range: string, units: number, rate: number, amount: number }>,
@@ -229,9 +291,13 @@ function buildSavingTip(units, slabs, modeLabel, opts, currentTotal) {
 export function calculateBill(monthlyUnits, variables = {}) {
   const units = Math.max(0, Math.floor(Number(monthlyUnits) || 0));
 
+  // Resolve the DISCO preset, if any. Explicit variables override preset values.
+  const preset = variables.disco ? DISCO_PRESETS[variables.disco] : null;
+
   const opts = {
-    gstRate: variables.gstRate ?? DEFAULT_GST_RATE,
-    fuelAdjustment: variables.fuelAdjustment ?? 0,
+    gstRate: variables.gstRate ?? preset?.gstRate ?? DEFAULT_GST_RATE,
+    fuelAdjustment: variables.fuelAdjustment ?? preset?.fuelAdjustment ?? 0,
+    surcharge: variables.surcharge ?? preset?.surcharge ?? 0,
   };
 
   // Protected status only holds at/below 200 units. Above that, NEPRA bills the
@@ -253,10 +319,13 @@ export function calculateBill(monthlyUnits, variables = {}) {
     monthlyUnits: units,
     isProtected,
     currency: 'PKR',
+    disco: preset ? preset.code : null,
+    discoLabel: preset ? `${preset.label} (${preset.region})` : null,
     slabLabel,
     energyCharge: charges.energyCharge,
     fixedCharge: charges.fixedCharge,
     fuelAdjustment: charges.fuelAdjustment,
+    surcharge: charges.surcharge,
     tax: charges.tax,
     totalCost: charges.totalCost,
     breakdown: charges.breakdown,

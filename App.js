@@ -2,7 +2,12 @@ import './global.css';
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { calculateBill, calculateSolarSetup } from './src/utils/tariffEngine';
+import {
+  calculateBill,
+  calculateSolarSetup,
+  DISCO_LIST,
+  DISCO_PRESETS,
+} from './src/utils/tariffEngine';
 import {
   requestNotificationPermission,
   ensureAndroidChannel,
@@ -33,6 +38,7 @@ export default function App() {
   const [tab, setTab] = useState('bill'); // 'bill' | 'solar'
   const [units, setUnits] = useState(300);
   const [isProtected, setIsProtected] = useState(false);
+  const [disco, setDisco] = useState('LESCO');
   const [now, setNow] = useState(new Date());
   const [alertsEnabled, setAlertsEnabled] = useState(false);
 
@@ -68,8 +74,8 @@ export default function App() {
   const peak = isPeakHour(now);
 
   const bill = useMemo(
-    () => calculateBill(units, { isProtected }),
-    [units, isProtected]
+    () => calculateBill(units, { isProtected, disco }),
+    [units, isProtected, disco]
   );
 
   const tip = bill.smartSavingTip;
@@ -148,6 +154,46 @@ export default function App() {
           </View>
           <Toggle value={alertsEnabled} onToggle={togglePeakAlerts} />
         </View>
+      </View>
+
+      {/* ───────── DISCO / Region selector ───────── */}
+      <View className="rounded-3xl bg-slate-900 border border-slate-800 p-4 mb-5">
+        <Text className="text-slate-400 text-xs uppercase tracking-widest mb-3">
+          Your Distribution Company
+        </Text>
+        <View className="flex-row">
+          {DISCO_LIST.map((d, i) => {
+            const active = disco === d.code;
+            return (
+              <TouchableOpacity
+                key={d.code}
+                activeOpacity={0.85}
+                onPress={() => setDisco(d.code)}
+                className={
+                  'flex-1 rounded-xl py-2.5 ' +
+                  (i < DISCO_LIST.length - 1 ? 'mr-2 ' : '') +
+                  (active ? 'bg-amber-400' : 'bg-slate-800')
+                }
+              >
+                <Text
+                  className={
+                    'text-center text-xs font-bold ' +
+                    (active ? 'text-slate-950' : 'text-slate-300')
+                  }
+                >
+                  {d.code}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text className="text-slate-500 text-xs mt-3">
+          📍 {DISCO_PRESETS[disco].region} · FCA Rs.{' '}
+          {DISCO_PRESETS[disco].fuelAdjustment}/unit
+          {DISCO_PRESETS[disco].surcharge > 0
+            ? ` · +Rs. ${DISCO_PRESETS[disco].surcharge} surcharge`
+            : ''}
+        </Text>
       </View>
 
       {/* ───────── Tab switcher: Bill ⚡ / Solar ☀️ ───────── */}
@@ -266,7 +312,13 @@ export default function App() {
           <Row label="Energy charge" value={formatRs(bill.energyCharge)} />
           <Row label="Fixed charges" value={formatRs(bill.fixedCharge)} />
           {bill.fuelAdjustment > 0 && (
-            <Row label="Fuel adjustment" value={formatRs(bill.fuelAdjustment)} />
+            <Row
+              label={`Fuel adjustment (${bill.disco || 'std'})`}
+              value={formatRs(bill.fuelAdjustment)}
+            />
+          )}
+          {bill.surcharge > 0 && (
+            <Row label="Regional surcharge" value={formatRs(bill.surcharge)} />
           )}
           <Row label="GST (18%)" value={formatRs(bill.tax)} />
         </View>
