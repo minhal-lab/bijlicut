@@ -5,11 +5,25 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121212"
     },
-    "android": {},
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.minhalalisorganization.bijlicut",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.minhalalisorganization.bijlicut"
+    },
     "web": {
       "bundler": "metro"
     },
@@ -22,6 +36,12 @@
           "defaultChannel": "peak-hour-alerts"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "204c2f24-dd8b-4a0c-99b9-182eb42d5e1c"
+      }
+    },
+    "owner": "minhalalis-organization"
   }
 }
