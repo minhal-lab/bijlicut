@@ -15,6 +15,11 @@ import {
   cancelPeakAlerts,
   arePeakAlertsScheduled,
 } from './src/utils/notifications';
+import {
+  getBillLogs,
+  saveBillLog,
+  deleteBillLog,
+} from './src/utils/historyEngine';
 
 /**
  * BijliCut — dark-mode dashboard.
@@ -41,6 +46,7 @@ export default function App() {
   const [disco, setDisco] = useState('LESCO');
   const [now, setNow] = useState(new Date());
   const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [logs, setLogs] = useState([]);
 
   // Keep the grid-status badge accurate as the clock crosses the peak window.
   useEffect(() => {
@@ -71,12 +77,28 @@ export default function App() {
     }
   };
 
+  // Load saved bill logs on first render.
+  useEffect(() => {
+    getBillLogs().then(setLogs).catch(() => {});
+  }, []);
+
   const peak = isPeakHour(now);
 
   const bill = useMemo(
     () => calculateBill(units, { isProtected, disco }),
     [units, isProtected, disco]
   );
+
+  // Save the currently-active calculation, then refresh the list.
+  const handleLogCurrent = async () => {
+    await saveBillLog({ disco, units, total: bill.totalCost });
+    setLogs(await getBillLogs());
+  };
+
+  // Delete one log entry, then refresh the list.
+  const handleDeleteLog = async (id) => {
+    setLogs(await deleteBillLog(id));
+  };
 
   const tip = bill.smartSavingTip;
   const timeLabel = now.toLocaleTimeString('en-PK', {
@@ -196,7 +218,7 @@ export default function App() {
         </Text>
       </View>
 
-      {/* ───────── Tab switcher: Bill ⚡ / Solar ☀️ ───────── */}
+      {/* ───────── Tab switcher: Bill ⚡ / Solar ☀️ / History 📈 ───────── */}
       <View className="flex-row bg-slate-900 border border-slate-800 rounded-2xl p-1 mb-5">
         <TouchableOpacity
           className={'flex-1 rounded-xl py-3 ' + (tab === 'bill' ? 'bg-emerald-500' : '')}
@@ -205,11 +227,11 @@ export default function App() {
         >
           <Text
             className={
-              'text-center text-sm font-bold ' +
+              'text-center text-xs font-bold ' +
               (tab === 'bill' ? 'text-slate-950' : 'text-slate-400')
             }
           >
-            ⚡ Bill Estimator
+            ⚡ Bill
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -219,16 +241,41 @@ export default function App() {
         >
           <Text
             className={
-              'text-center text-sm font-bold ' +
+              'text-center text-xs font-bold ' +
               (tab === 'solar' ? 'text-slate-950' : 'text-slate-400')
             }
           >
-            ☀️ Solar Consultant
+            ☀️ Solar
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          className={'flex-1 rounded-xl py-3 ' + (tab === 'history' ? 'bg-amber-400' : '')}
+          activeOpacity={0.85}
+          onPress={() => setTab('history')}
+        >
+          <Text
+            className={
+              'text-center text-xs font-bold ' +
+              (tab === 'history' ? 'text-slate-950' : 'text-slate-400')
+            }
+          >
+            📈 History
           </Text>
         </TouchableOpacity>
       </View>
 
       {tab === 'solar' && <SolarConsultant />}
+
+      {tab === 'history' && (
+        <HistoryLog
+          units={units}
+          disco={disco}
+          total={bill.totalCost}
+          logs={logs}
+          onLog={handleLogCurrent}
+          onDelete={handleDeleteLog}
+        />
+      )}
 
       {/* ───────── Main Segment: interactive slider + live bill ───────── */}
       {tab === 'bill' && (
@@ -392,6 +439,88 @@ function Row({ label, value }) {
 
 /** Compact lakh formatter (1 lakh = 100,000) for tight stat tiles. */
 const lakhs = (n) => 'Rs. ' + (n / 100000).toFixed(1) + 'L';
+
+/** Format an ISO date as e.g. "12 Jun 2026". */
+const formatLogDate = (iso) =>
+  new Date(iso).toLocaleDateString('en-PK', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+/**
+ * History Log — log the current calculation and review past saved bills.
+ * Receives the live units/disco/total + persisted logs and handlers from App.
+ * Native elements only; dark-mode/amber aesthetic.
+ */
+function HistoryLog({ units, disco, total, logs, onLog, onDelete }) {
+  return (
+    <View>
+      {/* Log current calculation */}
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onLog}
+        className="rounded-3xl bg-amber-400 p-5 mb-5"
+      >
+        <Text className="text-slate-950 text-base font-extrabold text-center">
+          ＋ Log Current Calculation
+        </Text>
+        <Text className="text-amber-900 text-xs font-semibold text-center mt-1">
+          {disco} · {units} units · {formatRs(total)}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Saved logs */}
+      {logs.length === 0 ? (
+        <View className="rounded-3xl bg-slate-900 border border-slate-800 p-6">
+          <Text className="text-slate-400 text-center text-sm">
+            No saved bills yet. Tap “Log Current Calculation” to start tracking
+            your consumption. 📈
+          </Text>
+        </View>
+      ) : (
+        logs.map((log) => (
+          <View
+            key={log.id}
+            className="rounded-3xl bg-slate-900 border border-slate-800 p-4 mb-3 flex-row items-center"
+          >
+            <View className="flex-1">
+              <View className="flex-row items-center mb-1">
+                <Text className="text-white text-sm font-bold">
+                  {formatLogDate(log.date)}
+                </Text>
+                {log.disco ? (
+                  <View className="rounded-full bg-amber-400/15 px-2 py-0.5 ml-2">
+                    <Text className="text-amber-300 text-[10px] font-bold">
+                      {log.disco}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text className="text-slate-400 text-xs">{log.units} units</Text>
+            </View>
+
+            <Text className="text-emerald-400 text-lg font-extrabold mr-3">
+              {formatRs(log.total)}
+            </Text>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => onDelete(log.id)}
+              className="h-9 w-9 rounded-full bg-slate-800 items-center justify-center"
+            >
+              <Text className="text-base">🗑️</Text>
+            </TouchableOpacity>
+          </View>
+        ))
+      )}
+
+      <Text className="text-slate-600 text-[11px] text-center mt-5">
+        Logs are saved on this device only.
+      </Text>
+    </View>
+  );
+}
 
 /**
  * Solar Consultant — type an average summer bill, get an instant rooftop
